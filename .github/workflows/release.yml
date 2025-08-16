@@ -3,20 +3,25 @@ name: Build Green Packages (Win + Mac)
 on:
   workflow_dispatch:
   push:
-    tags: ["v*"]
+    tags:
+      - 'v*'
 
 env:
-  PYTHON_VERSION: "3.11"
-  # 关键：让 playwright 把浏览器安装到仓库目录 ./ms-playwright
+  PYTHON_VERSION: '3.11'
+  # 关键：让 Playwright 把浏览器装到仓库目录 ./ms-playwright
   PLAYWRIGHT_BROWSERS_PATH: ./ms-playwright
 
 jobs:
   build-win:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: ${{ env.PYTHON_VERSION }} }
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install deps (incl. PyInstaller) and Playwright browsers
         shell: pwsh
@@ -38,7 +43,8 @@ jobs:
         run: |
           Compress-Archive -Path dist\WebImageSaver\* -DestinationPath WebImageSaver-win64.zip
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
           name: WebImageSaver-win64.zip
           path: WebImageSaver-win64.zip
@@ -46,9 +52,13 @@ jobs:
   build-mac-arm64:
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: ${{ env.PYTHON_VERSION }} }
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install deps (incl. PyInstaller) and Playwright browsers
         run: |
@@ -67,7 +77,8 @@ jobs:
         run: |
           cd dist && zip -r ../WebImageSaver-mac-arm64.zip WebImageSaver.app
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
           name: WebImageSaver-mac-arm64.zip
           path: WebImageSaver-mac-arm64.zip
@@ -75,9 +86,13 @@ jobs:
   build-mac-x64:
     runs-on: macos-13
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: ${{ env.PYTHON_VERSION }} }
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install deps (incl. PyInstaller) and Playwright browsers
         run: |
@@ -96,7 +111,8 @@ jobs:
         run: |
           cd dist && zip -r ../WebImageSaver-mac-x64.zip WebImageSaver.app
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
           name: WebImageSaver-mac-x64.zip
           path: WebImageSaver-mac-x64.zip
