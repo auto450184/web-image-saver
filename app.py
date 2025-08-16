@@ -14,14 +14,40 @@ from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 # NEW: 用于 4:3 转换
 from PIL import Image
 # ---- DPI awareness & scaling helpers (Windows + 通用) ----
-import sys, platform
-LOCAL_MS = os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(sys.argv[0])), "ms-playwright")
-os.environ["PLAYWRIGHT_BROWSERS_PATH"] = LOCAL_MS
+import sys, platform, tarfile, pathlib
+
+# 程序根路径（兼容打包后的 _MEIPASS）
+APP_ROOT = pathlib.Path(getattr(sys, "_MEIPASS", os.path.dirname(sys.argv[0])))
+
+# 浏览器目录 & 压缩包路径
+MS_DIR = APP_ROOT / "ms-playwright"
+MS_TGZ = APP_ROOT / "ms-playwright.tgz"
+
+# 运行时让 Playwright 用同目录浏览器
+os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(MS_DIR)
 
 def ensure_local_browsers():
-    if not os.path.exists(LOCAL_MS) or not os.listdir(LOCAL_MS):
-        raise SystemExit("[ERROR] 缺少 ms-playwright 浏览器目录。请使用带内核的绿色包（或改为在线首启下载浏览器的方案）。")
+    try:
+        # 情况 1：目录已存在且非空 -> 直接使用
+        if MS_DIR.exists() and any(MS_DIR.iterdir()):
+            return
+
+        # 情况 2：目录没有，但有压缩包 -> 解压到 APP_ROOT（会展开出 ms-playwright/）
+        if MS_TGZ.exists():
+            with tarfile.open(MS_TGZ, "r:gz") as tf:
+                tf.extractall(APP_ROOT)
+            # 解压后再校验一次
+            if MS_DIR.exists() and any(MS_DIR.iterdir()):
+                return
+            raise SystemExit("[ERROR] ms-playwright 解压后内容缺失。")
+    except Exception as e:
+        raise SystemExit(f"[ERROR] 准备本地浏览器失败：{e}")
+
+    # 情况 3：两者都没有 -> 明确提示
+    raise SystemExit("[ERROR] 缺少浏览器内核（ms-playwright 或 ms-playwright.tgz）。")
+
 ensure_local_browsers()
+
 
 def _apply_win_dpi_awareness():
     if platform.system() == "Windows":

@@ -3,25 +3,20 @@ name: Build with Nuitka (Win + Mac)
 on:
   workflow_dispatch:
   push:
-    tags:
-      - 'v*'
+    tags: ['v*']
 
 env:
   PYTHON_VERSION: '3.11'
-  # 关键：让 Playwright 把浏览器安装到仓库目录
+  # 构建阶段也指向仓库目录，方便 playwright 安装位置统一
   PLAYWRIGHT_BROWSERS_PATH: ./ms-playwright
 
 jobs:
   build-win:
     runs-on: windows-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: ${{ env.PYTHON_VERSION }} }
 
       - name: Install deps and browsers
         shell: pwsh
@@ -30,16 +25,23 @@ jobs:
           pip install -r requirements.txt
           python -m playwright install chromium
 
+      - name: Pack ms-playwright to TGZ (Windows)
+        shell: pwsh
+        run: |
+          if (Test-Path ms-playwright.tgz) { Remove-Item ms-playwright.tgz -Force }
+          tar -czf ms-playwright.tgz ms-playwright
+          # 可选：减小工作目录体积
+          Remove-Item -Recurse -Force ms-playwright
+
       - name: Build EXE with Nuitka
         shell: pwsh
         run: |
-          # 生成单文件 EXE（隐藏控制台，启用 Tk 插件，打包 ms-playwright 目录）
           python -m nuitka app.py `
             --onefile `
             --standalone `
             --windows-console-mode=disable `
             --enable-plugin=tk-inter `
-            --include-data-dir=ms-playwright=ms-playwright `
+            --include-data-files=ms-playwright.tgz=ms-playwright.tgz `
             --output-filename=WebImageSaver.exe `
             --output-dir=build
 
@@ -48,8 +50,7 @@ jobs:
         run: |
           Compress-Archive -Path build\WebImageSaver.exe -DestinationPath WebImageSaver-win64.zip
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: WebImageSaver-win64.zip
           path: WebImageSaver-win64.zip
@@ -57,19 +58,20 @@ jobs:
   build-mac-arm64:
     runs-on: macos-14
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: ${{ env.PYTHON_VERSION }} }
 
       - name: Install deps and browsers
         run: |
           python -m pip install -U pip
           pip install -r requirements.txt
           python -m playwright install chromium
+
+      - name: Pack ms-playwright to TGZ (macOS arm64)
+        run: |
+          tar -czf ms-playwright.tgz ms-playwright
+          rm -rf ms-playwright
 
       - name: Build .app with Nuitka (arm64)
         run: |
@@ -78,5 +80,51 @@ jobs:
             --enable-plugin=tk-inter \
             --macos-create-app-bundle \
             --macos-app-name=WebImageSaver \
-            --include-data-dir=ms-playwright=ms-playwright \
+            --include-data-files=ms-playwright.tgz=ms-playwright.tgz \
             --output-dir=build
+
+      - name: Zip artifact
+        run: |
+          cd build && zip -r ../WebImageSaver-mac-arm64.zip WebImageSaver.app
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WebImageSaver-mac-arm64.zip
+          path: WebImageSaver-mac-arm64.zip
+
+  build-mac-x64:
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: ${{ env.PYTHON_VERSION }} }
+
+      - name: Install deps and browsers
+        run: |
+          python -m pip install -U pip
+          pip install -r requirements.txt
+          python -m playwright install chromium
+
+      - name: Pack ms-playwright to TGZ (macOS x64)
+        run: |
+          tar -czf ms-playwright.tgz ms-playwright
+          rm -rf ms-playwright
+
+      - name: Build .app with Nuitka (x64)
+        run: |
+          python -m nuitka app.py \
+            --standalone \
+            --enable-plugin=tk-inter \
+            --macos-create-app-bundle \
+            --macos-app-name=WebImageSaver \
+            --include-data-files=ms-playwright.tgz=ms-playwright.tgz \
+            --output-dir=build
+
+      - name: Zip artifact
+        run: |
+          cd build && zip -r ../WebImageSaver-mac-x64.zip WebImageSaver.app
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WebImageSaver-mac-x64.zip
+          path: WebImageSaver-mac-x64.zip
