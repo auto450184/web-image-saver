@@ -1,5 +1,7 @@
 playwright
-requests
 pillow
+requests
 ttkbootstrap
-pyinstaller
+nuitka
+ordered-set
+zstandard

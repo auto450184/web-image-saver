@@ -1,44 +1,55 @@
-name: Build Green Packages (Win + Mac)
+name: Build with Nuitka (Win + Mac)
 
 on:
   workflow_dispatch:
   push:
-    tags: ["v*"]
+    tags:
+      - 'v*'
 
 env:
-  PYTHON_VERSION: "3.11"
-  # 关键：让 playwright 把浏览器安装到仓库目录 ./ms-playwright
+  PYTHON_VERSION: '3.11'
+  # 关键：让 Playwright 把浏览器安装到仓库目录
   PLAYWRIGHT_BROWSERS_PATH: ./ms-playwright
 
 jobs:
   build-win:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: ${{ env.PYTHON_VERSION }} }
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Install deps (incl. PyInstaller) and Playwright browsers
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install deps and browsers
         shell: pwsh
         run: |
           python -m pip install -U pip
           pip install -r requirements.txt
-          pip install pyinstaller
           python -m playwright install chromium
 
-      - name: Build exe with PyInstaller
-        shell: cmd
-        run: >
-          python -m pyinstaller -y --clean --windowed
-          --add-data "ms-playwright;ms-playwright"
-          --name "WebImageSaver" app.py
+      - name: Build EXE with Nuitka
+        shell: pwsh
+        run: |
+          # 生成单文件 EXE（隐藏控制台，启用 Tk 插件，打包 ms-playwright 目录）
+          python -m nuitka app.py `
+            --onefile `
+            --standalone `
+            --windows-console-mode=disable `
+            --enable-plugin=tk-inter `
+            --include-data-dir=ms-playwright=ms-playwright `
+            --output-filename=WebImageSaver.exe `
+            --output-dir=build
 
       - name: Zip artifact (Windows)
         shell: pwsh
         run: |
-          Compress-Archive -Path dist\WebImageSaver\* -DestinationPath WebImageSaver-win64.zip
+          Compress-Archive -Path build\WebImageSaver.exe -DestinationPath WebImageSaver-win64.zip
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
           name: WebImageSaver-win64.zip
           path: WebImageSaver-win64.zip
@@ -46,57 +57,26 @@ jobs:
   build-mac-arm64:
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: ${{ env.PYTHON_VERSION }} }
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Install deps (incl. PyInstaller) and Playwright browsers
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install deps and browsers
         run: |
           python -m pip install -U pip
           pip install -r requirements.txt
-          pip install pyinstaller
           python -m playwright install chromium
 
-      - name: Build app with PyInstaller
+      - name: Build .app with Nuitka (arm64)
         run: |
-          python -m pyinstaller -y --clean --windowed \
-            --add-data "ms-playwright:ms-playwright" \
-            --name "WebImageSaver" app.py
-
-      - name: Zip artifact (macOS arm64)
-        run: |
-          cd dist && zip -r ../WebImageSaver-mac-arm64.zip WebImageSaver.app
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: WebImageSaver-mac-arm64.zip
-          path: WebImageSaver-mac-arm64.zip
-
-  build-mac-x64:
-    runs-on: macos-13
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: ${{ env.PYTHON_VERSION }} }
-
-      - name: Install deps (incl. PyInstaller) and Playwright browsers
-        run: |
-          python -m pip install -U pip
-          pip install -r requirements.txt
-          pip install pyinstaller
-          python -m playwright install chromium
-
-      - name: Build app with PyInstaller
-        run: |
-          python -m pyinstaller -y --clean --windowed \
-            --add-data "ms-playwright:ms-playwright" \
-            --name "WebImageSaver" app.py
-
-      - name: Zip artifact (macOS x64)
-        run: |
-          cd dist && zip -r ../WebImageSaver-mac-x64.zip WebImageSaver.app
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: WebImageSaver-mac-x64.zip
-          path: WebImageSaver-mac-x64.zip
+          python -m nuitka app.py \
+            --standalone \
+            --enable-plugin=tk-inter \
+            --macos-create-app-bundle \
+            --macos-app-name=WebImageSaver \
+            --include-data-dir=ms-playwright=ms-playwright \
+            --output-dir=build
