@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Build
+build/
+dist/
+*.spec
+
+# IDE
+.idea/
+.vscode/
+
+# Playwright 浏览器缓存（很大，别传）
+ms-playwright/
+
+# OS
+Thumbs.db
+.DS_Store
