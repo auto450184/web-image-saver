@@ -1,4 +1,4 @@
-name: Build Apps with Nuitka
+name: Build Apps with Nuitka (Win + Mac)
 
 on:
   workflow_dispatch:
@@ -12,11 +12,9 @@ jobs:
   build-win:
     runs-on: windows-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
@@ -55,25 +53,25 @@ jobs:
             --lto=no `
             --assume-yes-for-downloads
 
-      - name: Zip artifact
+      - name: Zip artifact (Win)
         shell: pwsh
         run: |
-          Compress-Archive -Path build\WebImageSaver.exe -DestinationPath WebImageSaver-win64.zip
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          Copy-Item build\WebImageSaver.exe dist\
+          if (Test-Path ms-playwright.tgz) { Copy-Item ms-playwright.tgz dist\ }
+          Compress-Archive -Path dist\* -DestinationPath WebImageSaver-win64.zip -Force
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: WebImageSaver-win64.zip
           path: WebImageSaver-win64.zip
 
   build-mac:
-    runs-on: macos-latest
+    runs-on: macos-latest   # ARM runner（Apple Silicon）
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
@@ -96,7 +94,8 @@ jobs:
           tar -czf ms-playwright.tgz ms-playwright
           rm -rf ms-playwright
 
-      - name: Build EXE with Nuitka (macOS)
+      # 这里先做“单文件可执行”，最稳；若想做 .app，可再换为 create-app-bundle
+      - name: Build executable with Nuitka (macOS)
         run: |
           python -m nuitka app.py \
             --onefile \
@@ -108,13 +107,14 @@ jobs:
             --lto=no \
             --assume-yes-for-downloads
 
-      - name: Zip artifact
+      - name: Zip artifact (macOS)
         run: |
-          cd build
-          zip -r ../WebImageSaver-macos.zip WebImageSaver-macos
+          mkdir -p dist
+          cp build/WebImageSaver-macos dist/
+          if [ -f ms-playwright.tgz ]; then cp ms-playwright.tgz dist/; fi
+          cd dist && zip -r ../WebImageSaver-macos.zip .
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: WebImageSaver-macos.zip
           path: WebImageSaver-macos.zip

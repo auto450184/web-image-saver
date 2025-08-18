@@ -1,7 +1,4 @@
 playwright
 pillow
-requests
 ttkbootstrap
-nuitka
-ordered-set
-zstandard
+requests

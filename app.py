@@ -14,39 +14,56 @@ from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 # NEW: 用于 4:3 转换
 from PIL import Image
 # ---- DPI awareness & scaling helpers (Windows + 通用) ----
-import sys, platform, tarfile, pathlib
+# --- 放在 imports 后面 ---
+import sys, os, tarfile, pathlib, platform
 
-# 程序根路径（兼容打包后的 _MEIPASS）
-APP_ROOT = pathlib.Path(getattr(sys, "_MEIPASS", os.path.dirname(sys.argv[0])))
+APP_NAME = "WebImageSaver"
 
-# 浏览器目录 & 压缩包路径
-MS_DIR = APP_ROOT / "ms-playwright"
-MS_TGZ = APP_ROOT / "ms-playwright.tgz"
+def _user_data_dir():
+    home = pathlib.Path.home()
+    if platform.system() == "Windows":
+        base = pathlib.Path(os.environ.get("LOCALAPPDATA", home / "AppData/Local"))
+        return base / APP_NAME
+    elif platform.system() == "Darwin":
+        return home / "Library/Application Support" / APP_NAME
+    else:
+        return home / ".local/share" / APP_NAME
 
-# 运行时让 Playwright 用同目录浏览器
+APP_ROOT   = pathlib.Path(getattr(sys, "_MEIPASS", os.path.dirname(sys.argv[0])))
+RUNTIME_DIR = _user_data_dir()
+MS_DIR      = RUNTIME_DIR / "ms-playwright"
+MS_TGZ_APP  = APP_ROOT / "ms-playwright.tgz"   # 跟 exe 同目录打包进去
+MS_TGZ_USER = RUNTIME_DIR / "ms-playwright.tgz"
+
+# 让 Playwright 永远使用“用户目录”的浏览器（可写）
 os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(MS_DIR)
 
 def ensure_local_browsers():
-    try:
-        # 情况 1：目录已存在且非空 -> 直接使用
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    if MS_DIR.exists() and any(MS_DIR.iterdir()):
+        return
+
+    if MS_TGZ_APP.exists():
+        try:
+            with tarfile.open(MS_TGZ_APP, "r:gz") as tf:
+                tf.extractall(RUNTIME_DIR)
+            # 可选：留一份副本
+            try:
+                if not MS_TGZ_USER.exists():
+                    MS_TGZ_USER.write_bytes(MS_TGZ_APP.read_bytes())
+            except Exception:
+                pass
+        except Exception as e:
+            raise SystemExit(f"[ERROR] 解压浏览器失败：{e}")
+
         if MS_DIR.exists() and any(MS_DIR.iterdir()):
             return
+        raise SystemExit("[ERROR] 浏览器解压后内容缺失。")
 
-        # 情况 2：目录没有，但有压缩包 -> 解压到 APP_ROOT（会展开出 ms-playwright/）
-        if MS_TGZ.exists():
-            with tarfile.open(MS_TGZ, "r:gz") as tf:
-                tf.extractall(APP_ROOT)
-            # 解压后再校验一次
-            if MS_DIR.exists() and any(MS_DIR.iterdir()):
-                return
-            raise SystemExit("[ERROR] ms-playwright 解压后内容缺失。")
-    except Exception as e:
-        raise SystemExit(f"[ERROR] 准备本地浏览器失败：{e}")
-
-    # 情况 3：两者都没有 -> 明确提示
-    raise SystemExit("[ERROR] 缺少浏览器内核（ms-playwright 或 ms-playwright.tgz）。")
+    raise SystemExit("[ERROR] 缺少浏览器内核（ms-playwright.tgz）。")
 
 ensure_local_browsers()
+
 
 
 def _apply_win_dpi_awareness():
@@ -499,34 +516,44 @@ class App:
             self.pbar.stop()
             self.pbar["value"] = 0
 
+def _log_crash():
+    try:
+        (RUNTIME_DIR).mkdir(parents=True, exist_ok=True)
+        (RUNTIME_DIR / "last_crash.txt").write_text(traceback.format_exc(), encoding="utf-8")
+    except Exception:
+        pass
 
 if __name__ == "__main__":
-    _apply_win_dpi_awareness()
+    try:
+        _apply_win_dpi_awareness()
 
-    import ttkbootstrap as tb
-    # 主题可换：flatly / cosmo / lumen（亮）或 darkly / superhero（暗）
-    root = tb.Window(themename="flatly")
+        import ttkbootstrap as tb
+        # 主题可换：flatly / cosmo / lumen（亮）或 darkly / superhero（暗）
+        root = tb.Window(themename="flatly")
 
-    # 首次运行的全局缩放（125% 更舒适；想更大改 1.35/1.5）
-    set_scaling_from_system(root, user_factor=1.0)  # 想再大一点改 1.1/1.2
-    # 根据屏幕尺寸设置更大的窗口，并居中
-    sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
-    w = int(sw * 0.65)  # 宽度占屏幕 65%
-    h = int(sh * 0.75)  # 高度占屏幕 75%
-    root.geometry(f"{w}x{h}+{(sw - w) // 2}+{(sh - h) // 2}")
+        # 首次运行的全局缩放（125% 更舒适；想更大改 1.35/1.5）
+        set_scaling_from_system(root, user_factor=1.0)  # 想再大一点改 1.1/1.2
+        # 根据屏幕尺寸设置更大的窗口，并居中
+        sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
+        w = int(sw * 0.65)  # 宽度占屏幕 65%
+        h = int(sh * 0.75)  # 高度占屏幕 75%
+        root.geometry(f"{w}x{h}+{(sw - w) // 2}+{(sh - h) // 2}")
 
-    root.minsize(940, 620)         # 防止被压得太小
+        root.minsize(940, 620)         # 防止被压得太小
 
-    # 可选：Ctrl+/Ctrl- 缩放；Ctrl+0 复位
-    def _zoom(delta):
-        cur = float(root.call('tk', 'scaling'))
-        set_ui_scaling(root, max(0.8, min(2.0, cur + delta)))
-    root.bind("<Control-plus>",   lambda e: (_zoom(0.1), None))
-    root.bind("<Control-KP_Add>", lambda e: (_zoom(0.1), None))
-    root.bind("<Control-minus>",  lambda e: (_zoom(-0.1), None))
-    root.bind("<Control-KP_Subtract>", lambda e: (_zoom(-0.1), None))
-    root.bind("<Control-0>",      lambda e: (set_ui_scaling(root, 1.25), None))
+        # 可选：Ctrl+/Ctrl- 缩放；Ctrl+0 复位
+        def _zoom(delta):
+            cur = float(root.call('tk', 'scaling'))
+            set_ui_scaling(root, max(0.8, min(2.0, cur + delta)))
+        root.bind("<Control-plus>",   lambda e: (_zoom(0.1), None))
+        root.bind("<Control-KP_Add>", lambda e: (_zoom(0.1), None))
+        root.bind("<Control-minus>",  lambda e: (_zoom(-0.1), None))
+        root.bind("<Control-KP_Subtract>", lambda e: (_zoom(-0.1), None))
+        root.bind("<Control-0>",      lambda e: (set_ui_scaling(root, 1.25), None))
 
-    App(root)
-    root.mainloop()
+        App(root)
+        root.mainloop()
+    except Exception:
+        _log_crash()
+        raise
 
