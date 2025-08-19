@@ -38,24 +38,17 @@ jobs:
           tar -czf ms-playwright.tgz ms-playwright
           rm -rf ms-playwright
 
-      # 找到 Python 自带的 Tcl/Tk 资源目录（打包进去）
       - name: Locate Tcl/Tk resource dirs (macOS)
         id: tcltk
+        shell: bash
         run: |
-          PYCODE='
-import _tkinter, pathlib
-root = pathlib.Path(_tkinter.__file__).resolve().parent.parent
-print("TCL="+str((root/"tcl").resolve()))
-print("TK="+str((root/"tk").resolve()))
-'
-          eval "$(python - <<PY
-$PYCODE
-PY
-)"
-          echo "tcl_dir=$TCL" >> $GITHUB_OUTPUT
-          echo "tk_dir=$TK"  >> $GITHUB_OUTPUT
+          TCL=$(python -c 'import _tkinter, pathlib; root = pathlib.Path(_tkinter.__file__).resolve().parent.parent; print((root/"tcl").resolve())')
+          TK=$(python -c 'import _tkinter, pathlib; root = pathlib.Path(_tkinter.__file__).resolve().parent.parent; print((root/"tk").resolve())')
+          echo "tcl_dir=$TCL" >> "$GITHUB_OUTPUT"
+          echo "tk_dir=$TK"  >> "$GITHUB_OUTPUT"
           echo "TCL=$TCL"
           echo "TK=$TK"
+
 
       - name: Build .app with Nuitka (macOS)
         run: |
@@ -72,6 +65,7 @@ PY
             --output-dir=build \
             --lto=no \
             --assume-yes-for-downloads
+
 
       # 可选：ad-hoc 签名，降低 Gatekeeper 提示（不是正式签名/公证）
       - name: Ad-hoc codesign
