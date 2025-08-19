@@ -41,41 +41,46 @@ jobs:
       - name: Locate Tcl/Tk resource dirs (macOS)
         id: tcltk
         shell: bash
+        env:
+          TK_SILENCE_DEPRECATION: "1"
         run: |
-          TCL=$(python - <<'PY'
-          import tkinter, pathlib
-          root = pathlib.Path(tkinter.__file__).resolve().parent.parent
-          for name in ("tcl8.7","tcl8.6","tcl"):
-              p = root / name
-              if p.exists():
-                  print(p)
-                  break
+          # 让 Tk 自己报告库路径（在 CI 上不需要显示器也能跑）
+          eval "$(
+            python - <<'PY'
+          import tkinter
+          r = tkinter.Tk()
+          print("TCL_DIR='"+r.tk.eval('set tcl_library')+"'")
+          print("TK_DIR='"+r.tk.eval('set tk_library')+"'")
+          r.destroy()
           PY
-          )
-          
-                    TK=$(python - <<'PY'
-          import tkinter, pathlib
-          root = pathlib.Path(tkinter.__file__).resolve().parent.parent
-          for name in ("tk8.7","tk8.6","tk"):
-              p = root / name
-              if p.exists():
-                  print(p)
-                  break
-          PY
-          )
-
-          if [ -z "$TCL" ] || [ ! -d "$TCL" ]; then
+              )"
+      
+          # 兜底（部分镜像不设置 tk_library），尝试按常见框架路径找
+          if [ -z "$TK_DIR" ] || [ ! -d "$TK_DIR" ]; then
+            for v in 8.7 8.6; do
+              CAND="/Library/Frameworks/Tk.framework/Versions/$v/Resources/Scripts"
+              if [ -d "$CAND" ]; then TK_DIR="$CAND"; break; fi
+            done
+          fi
+          if [ -z "$TCL_DIR" ] || [ ! -d "$TCL_DIR" ]; then
+            for v in 8.7 8.6; do
+              CAND="/Library/Frameworks/Tcl.framework/Versions/$v/Resources/Scripts"
+              if [ -d "$CAND" ]; then TCL_DIR="$CAND"; break; fi
+            done
+          fi
+      
+          if [ -z "$TCL_DIR" ] || [ ! -d "$TCL_DIR" ]; then
             echo "TCL dir not found"; exit 1
           fi
-          if [ -z "$TK" ] || [ ! -d "$TK" ]; then
+          if [ -z "$TK_DIR" ] || [ ! -d "$TK_DIR" ]; then
             echo "TK dir not found"; exit 1
           fi
-
-          echo "tcl_dir=$TCL" >> "$GITHUB_OUTPUT"
-          echo "tk_dir=$TK"  >> "$GITHUB_OUTPUT"
-          echo "TCL=$TCL"
-          echo "TK=$TK"
-
+      
+          echo "tcl_dir=$TCL_DIR" >> "$GITHUB_OUTPUT"
+          echo "tk_dir=$TK_DIR"  >> "$GITHUB_OUTPUT"
+      
+          echo "Resolved Tcl dir: $TCL_DIR"
+          echo "Resolved Tk  dir: $TK_DIR"
 
       - name: Build .app with Nuitka (macOS)
         run: |
@@ -92,8 +97,6 @@ jobs:
             --output-dir=build \
             --lto=no \
             --assume-yes-for-downloads
-
-
 
       # 可选：ad-hoc 签名，降低 Gatekeeper 提示（不是正式签名/公证）
       - name: Ad-hoc codesign
