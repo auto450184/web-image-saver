@@ -103,10 +103,39 @@ jobs:
         run: |
           codesign --force --deep --sign - "build/WebImageSaver.app" || true
 
-      - name: Zip artifact (macOS .app)
+      # （可选）看一下构建目录里到底产出了什么，方便以后排查
+      - name: List build folder
         run: |
-          cd build
-          zip -r ../WebImageSaver-macos.zip "WebImageSaver.app"
+          echo "== ls -la build =="
+          ls -la build || true
+          echo "== find build -maxdepth 2 =="
+          find build -maxdepth 2 -print || true
+
+      # 自动定位 .app
+      - name: Locate built .app
+        id: appfinder
+        shell: bash
+        run: |
+          set -e
+          APP_PATH="$(find build -maxdepth 2 -type d -name '*.app' | head -n1 || true)"
+          if [ -z "$APP_PATH" ]; then
+            echo "No .app found. Contents of build:"
+            find build -maxdepth 3 -print || true
+            exit 1
+          fi
+          echo "Found app: $APP_PATH"
+          echo "app_path=$APP_PATH" >> "$GITHUB_OUTPUT"
+
+      # 用找到的路径来打 zip
+      - name: Zip artifact (macOS .app)
+        shell: bash
+        run: |
+          APP_PATH="${{ steps.appfinder.outputs.app_path }}"
+          APP_DIRNAME="$(dirname "$APP_PATH")"
+          APP_BASENAME="$(basename "$APP_PATH")"
+          cd "$APP_DIRNAME"
+          zip -r ../WebImageSaver-macos.zip "$APP_BASENAME"
+
 
       - uses: actions/upload-artifact@v4
         with:
