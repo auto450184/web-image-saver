@@ -42,8 +42,35 @@ jobs:
         id: tcltk
         shell: bash
         run: |
-          TCL=$(python -c 'import _tkinter, pathlib; root = pathlib.Path(_tkinter.__file__).resolve().parent.parent; print((root/"tcl").resolve())')
-          TK=$(python -c 'import _tkinter, pathlib; root = pathlib.Path(_tkinter.__file__).resolve().parent.parent; print((root/"tk").resolve())')
+          TCL=$(python - <<'PY'
+import tkinter, pathlib
+root = pathlib.Path(tkinter.__file__).resolve().parent.parent
+for name in ("tcl8.7","tcl8.6","tcl"):
+    p = root / name
+    if p.exists():
+        print(p)
+        break
+PY
+)
+
+          TK=$(python - <<'PY'
+import tkinter, pathlib
+root = pathlib.Path(tkinter.__file__).resolve().parent.parent
+for name in ("tk8.7","tk8.6","tk"):
+    p = root / name
+    if p.exists():
+        print(p)
+        break
+PY
+)
+
+          if [ -z "$TCL" ] || [ ! -d "$TCL" ]; then
+            echo "TCL dir not found"; exit 1
+          fi
+          if [ -z "$TK" ] || [ ! -d "$TK" ]; then
+            echo "TK dir not found"; exit 1
+          fi
+
           echo "tcl_dir=$TCL" >> "$GITHUB_OUTPUT"
           echo "tk_dir=$TK"  >> "$GITHUB_OUTPUT"
           echo "TCL=$TCL"
@@ -65,6 +92,7 @@ jobs:
             --output-dir=build \
             --lto=no \
             --assume-yes-for-downloads
+
 
 
       # 可选：ad-hoc 签名，降低 Gatekeeper 提示（不是正式签名/公证）
