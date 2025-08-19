@@ -43,26 +43,26 @@ jobs:
         shell: bash
         run: |
           TCL=$(python - <<'PY'
-import tkinter, pathlib
-root = pathlib.Path(tkinter.__file__).resolve().parent.parent
-for name in ("tcl8.7","tcl8.6","tcl"):
-    p = root / name
-    if p.exists():
-        print(p)
-        break
-PY
-)
-
-          TK=$(python - <<'PY'
-import tkinter, pathlib
-root = pathlib.Path(tkinter.__file__).resolve().parent.parent
-for name in ("tk8.7","tk8.6","tk"):
-    p = root / name
-    if p.exists():
-        print(p)
-        break
-PY
-)
+          import tkinter, pathlib
+          root = pathlib.Path(tkinter.__file__).resolve().parent.parent
+          for name in ("tcl8.7","tcl8.6","tcl"):
+              p = root / name
+              if p.exists():
+                  print(p)
+                  break
+          PY
+          )
+          
+                    TK=$(python - <<'PY'
+          import tkinter, pathlib
+          root = pathlib.Path(tkinter.__file__).resolve().parent.parent
+          for name in ("tk8.7","tk8.6","tk"):
+              p = root / name
+              if p.exists():
+                  print(p)
+                  break
+          PY
+          )
 
           if [ -z "$TCL" ] || [ ! -d "$TCL" ]; then
             echo "TCL dir not found"; exit 1
