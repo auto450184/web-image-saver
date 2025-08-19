@@ -5,8 +5,9 @@ on:
 
 env:
   PYTHON_VERSION: '3.11'
-  # 把 Playwright 浏览器下载到仓库根目录的 ./ms-playwright，便于后续打包/打 tgz
+  # 让 Playwright 浏览器下载到仓库目录，方便打包
   PLAYWRIGHT_BROWSERS_PATH: ./ms-playwright
+  PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS: "1"
   NUITKA_ASSUME_YES_FOR_DOWNLOADS: "1"
 
 jobs:
@@ -27,73 +28,32 @@ jobs:
           key: pip-mac-${{ runner.os }}-${{ env.PYTHON_VERSION }}-${{ hashFiles('**/requirements.txt') }}
 
       - name: Install deps and Playwright browsers
+        shell: bash
         run: |
+          set -e
           python -m pip install -U pip
           pip install -r requirements.txt
-          # Nuitka 及依赖
+          # Nuitka 及其依赖
           pip install nuitka ordered-set zstandard
           # 下载 Chromium 到 ./ms-playwright
           python -m playwright install chromium
 
-      # === ① 运行时引导器：写入 sitecustomize.py（自动解压 tgz 并设置环境变量）===
-      - name: Create runtime bootstrap (sitecustomize.py)
-        run: |
-          cat > sitecustomize.py <<'PY'
-          import os, sys, pathlib, tarfile, subprocess, shutil
-
-          APP_NAME = "WebImageSaver"
-
-          # 目标目录：mac 推荐放 Application Support；兜底 ~/.cache/ms-playwright
-          if sys.platform == "darwin":
-              target = pathlib.Path.home() / "Library" / "Application Support" / APP_NAME / "ms-playwright"
-          else:
-              target = pathlib.Path.home() / ".cache" / "ms-playwright"
-          target.mkdir(parents=True, exist_ok=True)
-
-          # 在多种可能位置查找随包的 ms-playwright.tgz
-          exe_dir = pathlib.Path(sys.executable).resolve().parent
-          here    = pathlib.Path(__file__).resolve().parent
-          candidates = [
-              exe_dir / "ms-playwright.tgz",                                    # .app/Contents/MacOS/
-              here / "ms-playwright.tgz",                                       # 旁路：与 sitecustomize 同级
-              exe_dir.parent.parent / "Resources" / "ms-playwright.tgz",        # .app/Contents/Resources/
-          ]
-          tgz_path = next((p for p in candidates if p.exists()), None)
-
-          # 首次运行时若目标目录为空，尝试解压
-          try:
-              if tgz_path and (not any(target.iterdir())):
-                  with tarfile.open(tgz_path, "r:gz") as tar:
-                      tar.extractall(target)
-          except Exception as e:
-              print(f"[sitecustomize] extract playwright failed: {e}", file=sys.stderr)
-
-          # Playwright 环境变量
-          os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(target))
-          os.environ.setdefault("PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS", "1")
-
-          # 清 quarantine，避免 Gatekeeper 卡浏览器二进制
-          if sys.platform == "darwin":
-              try:
-                  subprocess.run(["xattr","-dr","com.apple.quarantine", str(target)], check=False)
-              except Exception:
-                  pass
-          PY
-
-      # 打包 Playwright 浏览器为 tgz，随 app 分发
       - name: Pack ms-playwright to TGZ
+        shell: bash
         run: |
+          set -e
           rm -f ms-playwright.tgz
           tar -czf ms-playwright.tgz ms-playwright
           rm -rf ms-playwright
 
-      # 定位 Tcl/Tk 资源目录
+      # 让 Tk 自报家门拿到 tcl/tk 真实目录，随包带入，避免 msgcat 报错
       - name: Locate Tcl/Tk resource dirs (macOS)
         id: tcltk
         shell: bash
         env:
           TK_SILENCE_DEPRECATION: "1"
         run: |
+          set -e
           eval "$(
             python - <<'PY'
           import tkinter
@@ -104,7 +64,7 @@ jobs:
           PY
           )"
 
-          # 兜底（部分镜像 tk_library 为空），尝试按常见框架路径找
+          # 兜底：部分镜像可能 tk_library 为空，按常见框架路径尝试
           if [ -z "$TK_DIR" ] || [ ! -d "$TK_DIR" ]; then
             for v in 8.7 8.6; do
               CAND="/Library/Frameworks/Tk.framework/Versions/$v/Resources/Scripts"
@@ -132,7 +92,9 @@ jobs:
           echo "Resolved Tk  dir: $TK_DIR"
 
       - name: Build .app with Nuitka (macOS)
+        shell: bash
         run: |
+          set -e
           python -m nuitka app.py \
             --standalone \
             --onefile \
@@ -143,21 +105,25 @@ jobs:
             --include-data-dir="${{ steps.tcltk.outputs.tcl_dir }}=tcl" \
             --include-data-dir="${{ steps.tcltk.outputs.tk_dir }}=tk" \
             --include-data-files=ms-playwright.tgz=ms-playwright.tgz \
-            --include-data-files=sitecustomize.py=sitecustomize.py \
             --output-dir=build \
             --lto=no \
             --assume-yes-for-downloads
 
-      # ad-hoc 签名（可减少阻拦，但不是正式签名/公证）
+      # ad-hoc 签名（减少 Gatekeeper 阻拦；不是正式签名/公证）
       - name: Ad-hoc codesign
+        shell: bash
         run: |
+          set -e
           codesign --force --deep --sign - "build/WebImageSaver.app" || true
 
+      # 列目录便于排查
       - name: List build folder
+        shell: bash
         run: |
           echo "== ls -la build ==" && ls -la build || true
           echo "== find build -maxdepth 2 ==" && find build -maxdepth 2 -print || true
 
+      # 自动定位 .app
       - name: Locate built .app
         id: appfinder
         shell: bash
@@ -172,9 +138,11 @@ jobs:
           echo "Found app: $APP_PATH"
           echo "app_path=$APP_PATH" >> "$GITHUB_OUTPUT"
 
+      # 打 zip
       - name: Zip artifact (macOS .app)
         shell: bash
         run: |
+          set -e
           APP_PATH="${{ steps.appfinder.outputs.app_path }}"
           APP_DIRNAME="$(dirname "$APP_PATH")"
           APP_BASENAME="$(basename "$APP_PATH")"

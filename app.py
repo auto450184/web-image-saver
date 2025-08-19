@@ -1,4 +1,5 @@
 import os, re, json, time, threading, queue
+import traceback
 from urllib.parse import urlparse, urljoin
 import tkinter as tk
 import ttkbootstrap as tb
@@ -15,7 +16,7 @@ from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 from PIL import Image
 # ---- DPI awareness & scaling helpers (Windows + 通用) ----
 # --- 放在 imports 后面 ---
-import sys, os, tarfile, pathlib, platform
+import sys, tarfile, pathlib, platform
 
 APP_NAME = "WebImageSaver"
 
@@ -38,6 +39,7 @@ MS_TGZ_USER = RUNTIME_DIR / "ms-playwright.tgz"
 # 让 Playwright 永远使用“用户目录”的浏览器（可写）
 os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(MS_DIR)
 
+import subprocess  # 顶部 import
 def ensure_local_browsers():
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
     if MS_DIR.exists() and any(MS_DIR.iterdir()):
@@ -47,7 +49,18 @@ def ensure_local_browsers():
         try:
             with tarfile.open(MS_TGZ_APP, "r:gz") as tf:
                 tf.extractall(RUNTIME_DIR)
-            # 可选：留一份副本
+
+            # ✅ macOS: 清除隔离属性，避免内核被拦
+            if platform.system() == "Darwin":
+                try:
+                    subprocess.run(
+                        ["xattr", "-dr", "com.apple.quarantine", str(MS_DIR)],
+                        check=False,
+                    )
+                except Exception:
+                    pass
+
+            # 可选：留一份副本……
             try:
                 if not MS_TGZ_USER.exists():
                     MS_TGZ_USER.write_bytes(MS_TGZ_APP.read_bytes())
