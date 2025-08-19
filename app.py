@@ -524,12 +524,36 @@ def _log_crash():
         pass
 
 if __name__ == "__main__":
+    def _maybe_set_tcltk_env():
+        # Nuitka 会把我们 include 的 tcl/ tk 复制到可执行所在目录
+        APP_ROOT = pathlib.Path(getattr(sys, "_MEIPASS", os.path.dirname(sys.argv[0])))
+        tcl_dir = APP_ROOT / "tcl"
+        tk_dir = APP_ROOT / "tk"
+        if tcl_dir.exists():
+            os.environ.setdefault("TCL_LIBRARY", str(tcl_dir))
+        if tk_dir.exists():
+            os.environ.setdefault("TK_LIBRARY", str(tk_dir))
+
+
+    def _force_require_msgcat(root):
+        try:
+            root.tk.call("package", "require", "msgcat")
+        except Exception:
+            try:
+                root.tk.call("package", "require", "::msgcat")
+            except Exception as e:
+                print("[WARN] msgcat not available:", e)
+
+    # 创建 Tk 之前调用
+    _maybe_set_tcltk_env()
     try:
         _apply_win_dpi_awareness()
 
         import ttkbootstrap as tb
         # 主题可换：flatly / cosmo / lumen（亮）或 darkly / superhero（暗）
         root = tb.Window(themename="flatly")
+        # 兜底强制加载 msgcat
+        _force_require_msgcat(root)
 
         # 首次运行的全局缩放（125% 更舒适；想更大改 1.35/1.5）
         set_scaling_from_system(root, user_factor=1.0)  # 想再大一点改 1.1/1.2

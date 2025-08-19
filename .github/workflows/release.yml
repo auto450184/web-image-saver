@@ -1,4 +1,4 @@
-name: Build Apps with Nuitka (Win + Mac)
+name: Build macOS App (.app)
 
 on:
   workflow_dispatch:
@@ -9,65 +9,9 @@ env:
   NUITKA_ASSUME_YES_FOR_DOWNLOADS: "1"
 
 jobs:
-  build-win:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Cache pip (Windows)
-        uses: actions/cache@v4
-        with:
-          path: ~\AppData\Local\pip\Cache
-          key: pip-win-${{ runner.os }}-${{ env.PYTHON_VERSION }}-${{ hashFiles('**/requirements.txt') }}
-
-      - name: Install deps and browsers
-        shell: pwsh
-        run: |
-          python -m pip install -U pip
-          pip install -r requirements.txt
-          pip install nuitka ordered-set zstandard pefile
-          python -m playwright install chromium
-
-      - name: Pack ms-playwright to TGZ
-        shell: pwsh
-        run: |
-          if (Test-Path ms-playwright.tgz) { Remove-Item ms-playwright.tgz -Force }
-          tar -czf ms-playwright.tgz ms-playwright
-          Remove-Item -Recurse -Force ms-playwright
-
-      - name: Build EXE with Nuitka (Windows)
-        shell: pwsh
-        run: |
-          python -m nuitka app.py `
-            --onefile `
-            --standalone `
-            --windows-console-mode=disable `
-            --enable-plugin=tk-inter `
-            --include-data-files=ms-playwright.tgz=ms-playwright.tgz `
-            --output-filename=WebImageSaver.exe `
-            --output-dir=build `
-            --lto=no `
-            --assume-yes-for-downloads
-
-      - name: Zip artifact (Win)
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Path dist -Force | Out-Null
-          Copy-Item build\WebImageSaver.exe dist\
-          if (Test-Path ms-playwright.tgz) { Copy-Item ms-playwright.tgz dist\ }
-          Compress-Archive -Path dist\* -DestinationPath WebImageSaver-win64.zip -Force
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: WebImageSaver-win64.zip
-          path: WebImageSaver-win64.zip
-
   build-mac:
-    runs-on: macos-latest   # ARM runner（Apple Silicon）
+    runs-on: macos-latest  # Apple Silicon runner
+
     steps:
       - uses: actions/checkout@v4
 
@@ -81,7 +25,7 @@ jobs:
           path: ~/Library/Caches/pip
           key: pip-mac-${{ runner.os }}-${{ env.PYTHON_VERSION }}-${{ hashFiles('**/requirements.txt') }}
 
-      - name: Install deps and browsers
+      - name: Install deps and Playwright browsers
         run: |
           python -m pip install -U pip
           pip install -r requirements.txt
@@ -94,25 +38,50 @@ jobs:
           tar -czf ms-playwright.tgz ms-playwright
           rm -rf ms-playwright
 
-      # 这里先做“单文件可执行”，最稳；若想做 .app，可再换为 create-app-bundle
-      - name: Build executable with Nuitka (macOS)
+      # 找到 Python 自带的 Tcl/Tk 资源目录（打包进去）
+      - name: Locate Tcl/Tk resource dirs (macOS)
+        id: tcltk
+        run: |
+          PYCODE='
+import _tkinter, pathlib
+root = pathlib.Path(_tkinter.__file__).resolve().parent.parent
+print("TCL="+str((root/"tcl").resolve()))
+print("TK="+str((root/"tk").resolve()))
+'
+          eval "$(python - <<PY
+$PYCODE
+PY
+)"
+          echo "tcl_dir=$TCL" >> $GITHUB_OUTPUT
+          echo "tk_dir=$TK"  >> $GITHUB_OUTPUT
+          echo "TCL=$TCL"
+          echo "TK=$TK"
+
+      - name: Build .app with Nuitka (macOS)
         run: |
           python -m nuitka app.py \
-            --onefile \
             --standalone \
+            --onefile \
             --enable-plugin=tk-inter \
+            --macos-create-app-bundle \
+            --macos-app-name=WebImageSaver \
+            --macos-app-version=1.0.0 \
+            --include-data-dir="${{ steps.tcltk.outputs.tcl_dir }}=tcl" \
+            --include-data-dir="${{ steps.tcltk.outputs.tk_dir }}=tk" \
             --include-data-files=ms-playwright.tgz=ms-playwright.tgz \
-            --output-filename=WebImageSaver-macos \
             --output-dir=build \
             --lto=no \
             --assume-yes-for-downloads
 
-      - name: Zip artifact (macOS)
+      # 可选：ad-hoc 签名，降低 Gatekeeper 提示（不是正式签名/公证）
+      - name: Ad-hoc codesign
         run: |
-          mkdir -p dist
-          cp build/WebImageSaver-macos dist/
-          if [ -f ms-playwright.tgz ]; then cp ms-playwright.tgz dist/; fi
-          cd dist && zip -r ../WebImageSaver-macos.zip .
+          codesign --force --deep --sign - "build/WebImageSaver.app" || true
+
+      - name: Zip artifact (macOS .app)
+        run: |
+          cd build
+          zip -r ../WebImageSaver-macos.zip "WebImageSaver.app"
 
       - uses: actions/upload-artifact@v4
         with:
